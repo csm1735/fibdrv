@@ -6,6 +6,8 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 
 MODULE_LICENSE("Dual MIT/GPL");
 MODULE_AUTHOR("National Cheng Kung University, Taiwan");
@@ -17,12 +19,16 @@ MODULE_VERSION("0.1");
 /* MAX_LENGTH is set to 92 because
  * ssize_t can't fit the number > 92
  */
-#define MAX_LENGTH 92
+#define MAX_LENGTH 500
 
 static dev_t fib_dev = 0;
 static struct cdev *fib_cdev;
 static struct class *fib_class;
 static DEFINE_MUTEX(fib_mutex);
+
+typedef struct BigN {
+    char num[128];
+} bn;
 
 // static long long fib_sequence(long long k)
 // {
@@ -39,27 +45,66 @@ static DEFINE_MUTEX(fib_mutex);
 //     return f[k];
 // }
 
-static long long fib_sequence(long long k)
+// static long long fib_sequence(long long k)
+// {
+//     if (k <= 2)
+//         return !!k;
+
+//     uint8_t count = 63 - __builtin_clzll(k);
+//     uint64_t n0 = 1, n1 = 1;
+
+//     for (uint64_t i = count; i-- > 0;) {
+//         uint64_t fib_2n0 = n0 * ((n1 << 1) - n0);
+//         uint64_t fib_2n1 = n0 * n0 + n1 * n1;
+
+//         if (k & (1UL << i)) {
+//             n0 = fib_2n1;
+//             n1 = fib_2n0 + fib_2n1;
+//         } else {
+//             n0 = fib_2n0;
+//             n1 = fib_2n1;
+//         }
+//     }
+//     return n0;
+// }
+
+void reverse_string(char *s, size_t size)
 {
-    if (k <= 2)
-        return !!k;
-
-    uint8_t count = 63 - __builtin_clzll(k);
-    uint64_t n0 = 1, n1 = 1;
-
-    for (uint64_t i = count; i-- > 0;) {
-        uint64_t fib_2n0 = n0 * ((n1 << 1) - n0);
-        uint64_t fib_2n1 = n0 * n0 + n1 * n1;
-
-        if (k & (1UL << i)) {
-            n0 = fib_2n1;
-            n1 = fib_2n0 + fib_2n1;
-        } else {
-            n0 = fib_2n0;
-            n1 = fib_2n1;
-        }
+    for (int i = 0; i < size / 2; ++i) {
+        s[i] = s[i] ^ s[size - i - 1];
+        s[size - i - 1] = s[i] ^ s[size - i - 1];
+        s[i] = s[i] ^ s[size - i - 1];
     }
-    return n0;
+}
+
+static void string_add(char *a, char *b, char *out)
+{
+    int size_a = strlen(a), size_b = strlen(b);
+    int index = 0, carry = 0;
+    for (index = 0; index < size_a; ++index) {
+        int tmp = (index < size_b) ? (a[index] - '0') + (b[index] - '0') + carry
+                                   : (a[index] - '0') + carry;
+        out[index] = '0' + tmp % 10;
+        carry = tmp / 10;
+    }
+    if (carry) {
+        out[index] = '1';
+    }
+    out[++index] = '\0';
+}
+
+static long long fib_sequence_bn(long long k, char *buf)
+{
+    bn *fib = kmalloc(sizeof(bn) * (k + 1), GFP_KERNEL);
+    strncpy(fib[0].num, "0", 2);
+    strncpy(fib[1].num, "1", 2);
+    for (int i = 2; i <= k; ++i) {
+        string_add(fib[i - 1].num, fib[i - 2].num, fib[i].num);
+    }
+    uint64_t size = strlen(fib[k].num);
+    reverse_string(fib[k].num, size);
+    __copy_to_user(buf, fib[k].num, size + 1);
+    return size;
 }
 
 static int fib_open(struct inode *inode, struct file *file)
@@ -83,7 +128,7 @@ static ssize_t fib_read(struct file *file,
                         size_t size,
                         loff_t *offset)
 {
-    return (ssize_t) fib_sequence(*offset);
+    return (ssize_t) fib_sequence_bn(*offset, buf);
 }
 
 /* write operation is skipped */
