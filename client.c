@@ -13,7 +13,7 @@ int main()
 
     char buf[128];
     char write_buf[] = "testing writing";
-    int offset = 500; /* TODO: try test something bigger than the limit */
+    int offset = 100; /* TODO: try test something bigger than the limit */
 
     int fd = open(FIB_DEV, O_RDWR);
     if (fd < 0) {
@@ -33,6 +33,8 @@ int main()
                " at offset %d, returned the sequence "
                "%s.\n",
                i, buf);
+        long long kt = write(fd, write_buf, 0);
+        printf("ktime is %lld.\n", kt);
     }
 
     for (int i = offset; i >= 0; i--) {
@@ -42,6 +44,8 @@ int main()
                " at offset %d, returned the sequence "
                "%s.\n",
                i, buf);
+        long long kt = write(fd, write_buf, 0);
+        printf("ktime is %lld.\n", kt);
     }
 
     close(fd);
